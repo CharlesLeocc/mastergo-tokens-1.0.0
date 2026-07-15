@@ -1,190 +1,359 @@
-import { MessageType, sendMsgToUI, UIMessage } from "@messages/sender";
 import {
+    MessageRequest,
+    sendErrorToUI,
+    sendSuccessToUI,
+    UIMessage,
+    isMessageRequest,
+} from "@messages/sender";
+import {
+    LocalStorageKeys,
+    StyleCategory,
     ThemeApplyData,
+    ThemeApplyIssue,
+    ThemeApplyResult,
     ThemeApplyScope,
     Token,
 } from "../typings/tokenCommonFields";
-import flatten from "lodash/fp/flatten";
-import keyBy from "lodash/fp/keyBy";
+import {
+    collectSceneNodes,
+    convertTokenNameToTheme,
+    mapWithConcurrency,
+} from "@lib/helper";
+import {
+    buildTokenCatalog,
+    makeStyleIndexKey,
+    TokenCatalog,
+    TokensGroupedByType,
+} from "@lib/tokenCatalog";
 
-import { convertTokenNameToTheme, traverse } from "@lib/helper";
+mg.showUI(__html__);
 
-mg.showUI(__html__, {
-    // width: 800,
-});
+type StyledSceneNode = SceneNode & {
+    fillStyleId?: string;
+    strokeStyleId?: string;
+    effectStyleId?: string;
+};
 
-async function getTokensGroupedByType(): Promise<{
-    effects: EffectStyle[];
-    textStyles: TextStyle[];
-    colors: PaintStyle[];
-}> {
-    let texts = mg.getLocalTextStyles();
-    let paints = mg.getLocalPaintStyles();
-    let effects = mg.getLocalEffectStyles();
+type StyleReference = {
+    nodeId: string;
+    category: StyleCategory;
+    oldStyleId: string;
+    apply: (newStyleId: string) => void;
+};
+
+type StyleResolution =
+    | { status: "resolved"; newStyleId: string; styleName: string }
+    | {
+          status: "skipped" | "failed";
+          styleName?: string;
+          reason: string;
+      };
+
+function serializeStyle<T extends Token>(style: T): T {
+    return JSON.parse(JSON.stringify(style)) as T;
+}
+
+async function getTokensGroupedByType(): Promise<TokensGroupedByType> {
+    const localTokens: TokensGroupedByType = {
+        colors: mg.getLocalPaintStyles(),
+        typography: mg.getLocalTextStyles(),
+        effects: mg.getLocalEffectStyles(),
+    };
     const teamLibrary = await mg.getTeamLibraryAsync();
-    for (const { style, name } of teamLibrary) {
-        texts = texts.concat(style.texts);
-        paints = paints.concat(style.paints);
-        effects = effects.concat(style.effects);
+
+    const teamTokens: TokensGroupedByType = {
+        colors: [],
+        typography: [],
+        effects: [],
+    };
+    for (const { style } of teamLibrary) {
+        teamTokens.colors.push(...style.paints);
+        teamTokens.typography.push(...style.texts);
+        teamTokens.effects.push(...style.effects);
     }
 
     return {
-        textStyles: texts.map((e) => {
-            const v = JSON.parse(JSON.stringify(e));
-            // @ts-ignore
-            // delete v["ukey"];
-            return v;
-        }),
-        colors: paints.map((e) => {
-            const v = JSON.parse(JSON.stringify(e));
-            // @ts-ignore
-            // delete v["ukey"];
-            return v;
-        }),
-        effects: effects.map((e) => {
-            const v = JSON.parse(JSON.stringify(e));
-            // @ts-ignore
-            // delete v["ukey"];
-            return v;
-        }),
+        // 本地样式优先，遇到团队库同类型同名样式时保持本地映射。
+        colors: [...localTokens.colors, ...teamTokens.colors].map(
+            serializeStyle,
+        ),
+        typography: [...localTokens.typography, ...teamTokens.typography].map(
+            serializeStyle,
+        ),
+        effects: [...localTokens.effects, ...teamTokens.effects].map(
+            serializeStyle,
+        ),
     };
 }
 
-async function getName2Token(): Promise<{ [key: string]: Token }> {
-    const tokens = await getTokensGroupedByType();
-
-    const flattenTokens = flatten(Object.values(tokens) as Token[][]);
-    return keyBy("name", flattenTokens);
+async function getTokenCatalog(): Promise<TokenCatalog> {
+    return buildTokenCatalog(await getTokensGroupedByType());
 }
 
-async function getGroupedTokens(): Promise<{ [key: string]: any }> {
-    const map: any = {};
-    const tokens = await getTokensGroupedByType();
-    for (let [, tokenCategory] of Object.entries(tokens)) {
-        tokenCategory.forEach((e) => {
-            const names = e.name.split("/");
-            let current = map;
-            for (let name of names) {
-                if (!current[name]) {
-                    current[name] = {};
-                }
-                current = current[name];
-            }
-            Object.assign(current, e);
-        });
-    }
-    return map;
-}
+function collectStyleReferences(
+    nodes: SceneNode[],
+    result: ThemeApplyResult,
+): StyleReference[] {
+    const references: StyleReference[] = [];
 
-mg.ui.onmessage = async ({ type, seq, data }: MessageType) => {
-    console.info("Receive message from ui thread: ", type, data);
-
-    switch (type as UIMessage) {
-        case UIMessage.STORAGE_GET:
-            mg.clientStorage.getAsync(data).then((value) => {
-                sendMsgToUI({
-                    type,
-                    seq,
-                    data: value,
+    for (const node of nodes) {
+        if (node.type === "TEXT") {
+            if (node.textStyles.length > 1) {
+                result.skippedProperties++;
+                result.issues.push({
+                    nodeId: node.id,
+                    category: "typography",
+                    level: "skipped",
+                    reason: "节点包含多种文本样式，已保持原样",
                 });
-            });
-            break;
-        case UIMessage.STORAGE_SET:
-            mg.clientStorage
-                .setAsync(data.key, data.data)
-                .catch((e) => console.error("failed to set storage", e));
-            break;
-
-        case UIMessage.GET_TOKENS:
-            const a = await getGroupedTokens();
-            sendMsgToUI({
-                type,
-                seq,
-                data: await getGroupedTokens(),
-            });
-            break;
-        case UIMessage.APPLY_THEME:
-            applyTheme(data as ThemeApplyData).catch((e) =>
-                console.error("failed to apply theme", e)
-            );
-            break;
-    }
-
-    async function applyTheme(data: ThemeApplyData) {
-        let applyTo: ReadonlyArray<SceneNode>;
-        const currentPage = mg.document.currentPage;
-        switch (data.applyScope) {
-            case ThemeApplyScope.page:
-                applyTo = mg.document.currentPage.children;
-                break;
-            // case ThemeApplyScope.document:
-            //     break;
-            case ThemeApplyScope.selection:
-                applyTo = currentPage.selection;
-                break;
-        }
-
-        const name2token = await getName2Token();
-
-        async function getNewStyleId(oldStyleId: string) {
-            const oldToken = mg.getStyleById(oldStyleId);
-            if (!oldToken) return null;
-
-            const newTokenName = convertTokenNameToTheme(
-                oldToken.name,
-                data.newTheme
-            );
-            const newToken = name2token[newTokenName];
-            if (mg.getStyleById(newToken.id)) {
-                return newToken.id;
             } else {
-                const teamLibStyle = await mg.importStyleByKeyAsync(
-                    newToken.ukey
-                );
-                return teamLibStyle.id;
-            }
-        }
-
-        for (const n of applyTo) {
-            traverse(n, async (node) => {
-                if (node.type == "TEXT") {
-                    if (node.textStyles.length > 1) return;
-                    const textStyle = node.textStyles[0];
-                    if (textStyle.textStyleId) {
-                        const newStyleId = await getNewStyleId(
-                            textStyle.textStyleId
-                        );
-                        if (newStyleId) {
+                const textStyleId = node.textStyles[0]?.textStyleId;
+                if (typeof textStyleId === "string" && textStyleId) {
+                    references.push({
+                        nodeId: node.id,
+                        category: "typography",
+                        oldStyleId: textStyleId,
+                        apply: (newStyleId) => {
                             node.setRangeTextStyleId(
                                 0,
                                 node.characters.length,
-                                newStyleId
+                                newStyleId,
                             );
-                        }
-                    }
+                        },
+                    });
                 }
-                // @ts-ignore
-                if (node.fillStyleId) {
-                    // @ts-ignore
-                    node.fillStyleId = await getNewStyleId(node.fillStyleId);
-                }
-                // @ts-ignore
-                if (node.strokeStyleId) {
-                    // @ts-ignore
-                    node.strokeStyleId = await getNewStyleId(
-                        // @ts-ignore
-                        node.strokeStyleId
-                    );
-                }
-                // @ts-ignore
-                if (node.effectStyleId) {
-                    // @ts-ignore
-                    node.effectStyleId = await getNewStyleId(
-                        // @ts-ignore
-                        node.effectStyleId
-                    );
-                }
+            }
+        }
+
+        const styledNode = node as StyledSceneNode;
+        const styleProperties: Array<{
+            property: "fillStyleId" | "strokeStyleId" | "effectStyleId";
+            category: StyleCategory;
+        }> = [
+            { property: "fillStyleId", category: "colors" },
+            { property: "strokeStyleId", category: "colors" },
+            { property: "effectStyleId", category: "effects" },
+        ];
+
+        for (const { property, category } of styleProperties) {
+            const oldStyleId = styledNode[property];
+            if (typeof oldStyleId !== "string" || !oldStyleId) continue;
+
+            references.push({
+                nodeId: node.id,
+                category,
+                oldStyleId,
+                apply: (newStyleId) => {
+                    styledNode[property] = newStyleId;
+                },
             });
         }
+    }
+
+    return references;
+}
+
+async function applyTheme(data: ThemeApplyData): Promise<ThemeApplyResult> {
+    const currentPage = mg.document.currentPage;
+    const roots =
+        data.applyScope === ThemeApplyScope.selection
+            ? currentPage.selection
+            : currentPage.children;
+    const nodes = collectSceneNodes(roots);
+    const result: ThemeApplyResult = {
+        scannedNodes: nodes.length,
+        updatedProperties: 0,
+        skippedProperties: 0,
+        failedProperties: 0,
+        issues: [],
+    };
+    const references = collectStyleReferences(nodes, result);
+    const { styleIndex } = await getTokenCatalog();
+    const resolutionCache = new Map<string, Promise<StyleResolution>>();
+
+    const resolveStyle = (
+        reference: Pick<StyleReference, "category" | "oldStyleId">,
+    ): Promise<StyleResolution> => {
+        const cacheKey = `${reference.category}:${reference.oldStyleId}`;
+        const cached = resolutionCache.get(cacheKey);
+        if (cached) return cached;
+
+        const resolution = (async (): Promise<StyleResolution> => {
+            const oldToken = mg.getStyleById(reference.oldStyleId);
+            if (!oldToken) {
+                return {
+                    status: "skipped",
+                    reason: "找不到节点当前使用的样式",
+                };
+            }
+
+            const newTokenName = convertTokenNameToTheme(
+                oldToken.name,
+                data.newTheme,
+            );
+            if (!newTokenName) {
+                return {
+                    status: "skipped",
+                    styleName: oldToken.name,
+                    reason: "当前样式名称不包含可替换的主题前缀",
+                };
+            }
+
+            const newToken = styleIndex.get(
+                makeStyleIndexKey(reference.category, newTokenName),
+            );
+            if (!newToken) {
+                return {
+                    status: "skipped",
+                    styleName: newTokenName,
+                    reason: "目标主题中不存在同类型样式",
+                };
+            }
+
+            if (mg.getStyleById(newToken.id)) {
+                return {
+                    status: "resolved",
+                    newStyleId: newToken.id,
+                    styleName: newToken.name,
+                };
+            }
+
+            if (!newToken.ukey) {
+                return {
+                    status: "failed",
+                    styleName: newToken.name,
+                    reason: "团队样式缺少可导入的 ukey",
+                };
+            }
+
+            try {
+                const importedStyle = await mg.importStyleByKeyAsync(
+                    newToken.ukey,
+                );
+                return {
+                    status: "resolved",
+                    newStyleId: importedStyle.id,
+                    styleName: newToken.name,
+                };
+            } catch {
+                return {
+                    status: "failed",
+                    styleName: newToken.name,
+                    reason: "团队样式导入失败",
+                };
+            }
+        })();
+
+        resolutionCache.set(cacheKey, resolution);
+        return resolution;
+    };
+
+    const uniqueReferences = Array.from(
+        new Map(
+            references.map((reference) => [
+                `${reference.category}:${reference.oldStyleId}`,
+                reference,
+            ]),
+        ).values(),
+    );
+    await mapWithConcurrency(uniqueReferences, 4, resolveStyle);
+
+    for (const reference of references) {
+        const resolution = await resolveStyle(reference);
+        if (resolution.status !== "resolved") {
+            const issue: ThemeApplyIssue = {
+                nodeId: reference.nodeId,
+                category: reference.category,
+                styleName: resolution.styleName,
+                level: resolution.status,
+                reason: resolution.reason,
+            };
+            result.issues.push(issue);
+            if (resolution.status === "skipped") {
+                result.skippedProperties++;
+            } else {
+                result.failedProperties++;
+            }
+            continue;
+        }
+
+        try {
+            reference.apply(resolution.newStyleId);
+            result.updatedProperties++;
+        } catch {
+            result.failedProperties++;
+            result.issues.push({
+                nodeId: reference.nodeId,
+                category: reference.category,
+                styleName: resolution.styleName,
+                level: "failed",
+                reason: "样式写入节点失败",
+            });
+        }
+    }
+
+    return result;
+}
+
+function assertThemeApplyData(data: unknown): asserts data is ThemeApplyData {
+    if (!data || typeof data !== "object") {
+        throw new Error("主题应用参数无效");
+    }
+    const candidate = data as Partial<ThemeApplyData>;
+    if (
+        typeof candidate.newTheme !== "string" ||
+        !candidate.newTheme.trim() ||
+        !Object.values(ThemeApplyScope).includes(
+            candidate.applyScope as ThemeApplyScope,
+        )
+    ) {
+        throw new Error("主题名称或应用范围无效");
+    }
+}
+
+function assertStorageKey(data: unknown): asserts data is LocalStorageKeys {
+    if (!Object.values(LocalStorageKeys).includes(data as LocalStorageKeys)) {
+        throw new Error("存储键无效");
+    }
+}
+
+async function handleMessage(message: MessageRequest): Promise<unknown> {
+    switch (message.type) {
+        case UIMessage.STORAGE_GET:
+            assertStorageKey(message.data);
+            return mg.clientStorage.getAsync(message.data);
+        case UIMessage.STORAGE_SET:
+            assertStorageKey(message.data.key);
+            await mg.clientStorage.setAsync(
+                message.data.key,
+                message.data.value,
+            );
+            return undefined;
+        case UIMessage.GET_TOKENS:
+            return (await getTokenCatalog()).exportData;
+        case UIMessage.APPLY_THEME:
+            assertThemeApplyData(message.data);
+            return applyTheme(message.data);
+    }
+}
+
+mg.ui.onmessage = async (rawMessage: unknown) => {
+    if (!isMessageRequest(rawMessage)) {
+        console.error("收到无效的 UI 消息", rawMessage);
+        return;
+    }
+
+    console.info("收到 UI 消息", rawMessage.type);
+    try {
+        const data = await handleMessage(rawMessage);
+        sendSuccessToUI(rawMessage.type, rawMessage.seq, data);
+    } catch (error) {
+        console.error("UI 消息处理失败", rawMessage.type, error);
+        sendErrorToUI(
+            rawMessage.type,
+            rawMessage.seq,
+            "REQUEST_FAILED",
+            error instanceof Error ? error.message : "请求处理失败",
+        );
     }
 };

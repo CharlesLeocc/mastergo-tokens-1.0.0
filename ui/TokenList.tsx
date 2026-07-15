@@ -1,67 +1,79 @@
 import * as React from "react";
-import { useEffect } from "react";
 import List from "@mui/material/List";
 import ListItemText from "@mui/material/ListItemText";
-import { Checkbox, ListItemButton, ListItemIcon } from "@mui/material";
-import { storageGet, storageSet } from "@messages/sender";
-import { LocalStorageKeys } from "../typings/tokenCommonFields";
+import {
+    Box,
+    Checkbox,
+    ListItemButton,
+    ListItemIcon,
+    Typography,
+} from "@mui/material";
+import { TokenExportData } from "../typings/tokenCommonFields";
 
 interface TokenListProps {
-    tokens: any;
+    tokens: TokenExportData;
+    value: string[];
     onChange: (themes: string[]) => void;
 }
 
 export default function TokenList(props: TokenListProps) {
-    const [checked, setChecked] = React.useState<string[]>([]);
-
-    useEffect(() => {
-        storageGet(LocalStorageKeys.themes).then((value) => {
-            if (value) setChecked(value);
-        });
-    }, []);
-
-    useEffect(() => {
-        props.onChange(checked);
-        storageSet(LocalStorageKeys.themes, checked).catch(console.error);
-    }, [checked]);
+    const themeNames = Object.keys(props.tokens.themes);
 
     const handleToggle = (value: string) => () => {
-        const currentIndex = checked.indexOf(value);
-        const newChecked = [...checked];
-
-        if (currentIndex === -1) {
-            newChecked.push(value);
-        } else {
-            newChecked.splice(currentIndex, 1);
-        }
-
-        setChecked(newChecked);
+        const selected = props.value.includes(value);
+        props.onChange(
+            selected
+                ? props.value.filter((theme) => theme !== value)
+                : [...props.value, value],
+        );
     };
+
+    if (themeNames.length === 0) {
+        return (
+            <Box className="empty-state">
+                <Typography color="text.secondary">
+                    未发现包含主题前缀的样式
+                </Typography>
+            </Box>
+        );
+    }
+
     return (
-        <List
-            sx={{ width: "100%", maxWidth: 360, bgcolor: "background.paper" }}
-        >
-            {props.tokens &&
-                Object.keys(props.tokens).map((themeName) => {
-                    return (
-                        <ListItemButton
-                            key={themeName}
-                            role={undefined}
-                            onClick={handleToggle(themeName)}
-                            dense
-                        >
-                            <ListItemIcon>
-                                <Checkbox
-                                    edge="start"
-                                    checked={checked.indexOf(themeName) !== -1}
-                                    tabIndex={-1}
-                                    disableRipple
-                                />
-                            </ListItemIcon>
-                            <ListItemText primary={themeName}></ListItemText>
-                        </ListItemButton>
-                    );
-                })}
+        <List className="theme-list" disablePadding>
+            {themeNames.map((themeName) => (
+                <ListItemButton
+                    key={themeName}
+                    onClick={handleToggle(themeName)}
+                    dense
+                    divider
+                >
+                    <ListItemIcon>
+                        <Checkbox
+                            edge="start"
+                            checked={props.value.includes(themeName)}
+                            tabIndex={-1}
+                            disableRipple
+                            slotProps={{
+                                input: { "aria-label": themeName },
+                            }}
+                        />
+                    </ListItemIcon>
+                    <ListItemText
+                        primary={themeName}
+                        secondary={`${
+                            Object.keys(props.tokens.themes[themeName].colors)
+                                .length
+                        } 颜色 · ${
+                            Object.keys(
+                                props.tokens.themes[themeName].typography,
+                            ).length
+                        } 文本 · ${
+                            Object.keys(props.tokens.themes[themeName].effects)
+                                .length
+                        } 效果`}
+                    />
+                </ListItemButton>
+            ))}
         </List>
     );
 }

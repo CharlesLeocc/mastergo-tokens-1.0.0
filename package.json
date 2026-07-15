@@ -1,39 +1,50 @@
 {
-  "name": "mastergo-plugin",
-  "version": "0.0.0",
-  "scripts": {
-    "dev": "yarn dev:ui & yarn dev:main",
-    "dev:ui": "cross-env TARGET=ui NODE_ENV=development vite build --mode development -w",
-    "dev:main": "cross-env TARGET=main NODE_ENV=development vite build --mode development -w",
-    "build": "yarn build:ui && yarn build:main && rm -rf ./dist/assets",
-    "build:ui": "cross-env TARGET=ui vite build",
-    "build:main": "cross-env TARGET=main vite build"
-  },
-  "dependencies": {
-    "@emotion/react": "^11.10.5",
-    "@emotion/styled": "^11.10.5",
-    "@mastergo/plugin-typings": "^1.0.0",
-    "@mui/material": "^5.11.8",
-    "highlight.js": "^11.7.0",
-    "lodash": "^4.17.21",
-    "react": "^17.0.2",
-    "react-dom": "^17.0.2"
-  },
-  "devDependencies": {
-    "@babel/core": "^7.17.5",
-    "@types/babel__core": "^7.1.18",
-    "@types/lodash": "^4.14.191",
-    "@types/react": "^17.0.39",
-    "@types/react-dom": "^17.0.11",
-    "@vitejs/plugin-react": "^1.2.0",
-    "cross-env": "^7.0.3",
-    "prettier": "^2.8.4",
-    "typescript": "^4.5.5",
-    "vite": "^2.8.4",
-    "vite-plugin-html": "^3.0.6",
-    "vite-plugin-singlefile": "^0.6.3"
-  },
-  "engines": {
-    "node": ">=14.14.0"
-  }
+    "name": "mastergo-plugin",
+    "version": "0.0.0",
+    "packageManager": "pnpm@10.17.1",
+    "scripts": {
+        "dev": "concurrently \"pnpm run dev:ui\" \"pnpm run dev:main\"",
+        "dev:ui": "cross-env TARGET=ui NODE_ENV=development vite build --mode development -w",
+        "dev:main": "cross-env TARGET=main NODE_ENV=development vite build --mode development -w",
+        "build": "pnpm run typecheck && pnpm run build:ui && pnpm run build:main && rimraf ./dist/assets",
+        "build:ui": "cross-env TARGET=ui vite build",
+        "build:main": "cross-env TARGET=main vite build",
+        "typecheck": "tsc --noEmit",
+        "lint": "eslint lib messages typings ui tests vite.config.ts",
+        "test": "tsx --test tests/**/*.test.ts",
+        "format:check": "prettier --check \"{lib,messages,typings,ui,tests}/**/*.{ts,tsx}\" \"*.{ts,json,mjs}\"",
+        "check": "pnpm run typecheck && pnpm run lint && pnpm run test && pnpm run format:check"
+    },
+    "dependencies": {
+        "@emotion/react": "^11.10.5",
+        "@emotion/styled": "^11.10.5",
+        "@mastergo/plugin-typings": "^2.18.4",
+        "@mui/material": "^9.2.0",
+        "highlight.js": "^11.7.0",
+        "react": "^18.3.1",
+        "react-dom": "^18.3.1"
+    },
+    "devDependencies": {
+        "@eslint/js": "^9.39.5",
+        "@types/react": "^18.3.31",
+        "@types/react-dom": "^18.3.7",
+        "@typescript-eslint/eslint-plugin": "^8.64.0",
+        "@typescript-eslint/parser": "^8.64.0",
+        "@vitejs/plugin-react": "^6.0.3",
+        "concurrently": "^8.2.2",
+        "cross-env": "^7.0.3",
+        "eslint": "^9.39.5",
+        "eslint-plugin-react": "^7.37.5",
+        "eslint-plugin-react-hooks": "^7.1.1",
+        "globals": "^17.7.0",
+        "prettier": "^3.9.5",
+        "rimraf": "^5.0.10",
+        "tsx": "^4.20.6",
+        "typescript": "^6.0.3",
+        "vite": "^8.1.4",
+        "vite-plugin-singlefile": "^2.3.3"
+    },
+    "engines": {
+        "node": ">=22.12.0"
+    }
 }

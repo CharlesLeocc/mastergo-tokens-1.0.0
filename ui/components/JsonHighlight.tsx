@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import hljs from "highlight.js";
+import hljs from "highlight.js/lib/core";
 import json from "highlight.js/lib/languages/json";
 import "highlight.js/styles/arta.css";
 
@@ -13,12 +13,14 @@ export default function JsonHighlight(props: HighlightProps) {
     const el = useRef<HTMLElement>(null);
 
     useEffect(() => {
-        hljs.highlightElement(el.current!);
-    }, []);
+        if (el.current) hljs.highlightElement(el.current);
+    }, [props.children]);
 
     return (
         <pre>
-            <code className="language-json" ref={el}>{props.children}</code>
+            <code className="language-json" ref={el}>
+                {props.children}
+            </code>
         </pre>
     );
 }
