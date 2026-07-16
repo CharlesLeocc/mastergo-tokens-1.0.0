@@ -58,6 +58,27 @@ body {
     min-height: 320px;
 }
 
+.export-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+}
+
+.export-summary {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 8px;
+    padding: 10px 12px;
+    border: 1px solid #cad4d1;
+    border-radius: 6px;
+    background: #ffffff;
+}
+
+.export-loading {
+    min-height: 280px;
+}
+
 .export-dialog-content pre {
     max-height: 52vh;
     margin: 0;
@@ -80,5 +101,14 @@ body {
     .apply-theme {
         width: calc(100% - 24px);
         padding: 24px 0;
+    }
+
+    .export-toolbar {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+
+    .export-summary {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 }

@@ -25,6 +25,7 @@ import {
     TokenCatalog,
     TokensGroupedByType,
 } from "@lib/tokenCatalog";
+import { VariableExportSnapshot } from "../typings/variableTokens";
 
 mg.showUI(__html__);
 
@@ -90,6 +91,45 @@ async function getTokenCatalog(): Promise<TokenCatalog> {
     return buildTokenCatalog(await getTokensGroupedByType());
 }
 
+function getVariableExportSnapshot(
+    includeExternal: boolean,
+): VariableExportSnapshot {
+    if (!mg.variables || typeof mg.variables.getCollections !== "function") {
+        throw new Error("当前 MasterGo 运行时不支持 Variables API");
+    }
+
+    const collections = mg.variables.getCollections(includeExternal);
+    return {
+        schemaVersion: 1,
+        collections: collections.map((collection) => ({
+            id: collection.id,
+            name: collection.name,
+            isExternal: collection.isExternal,
+            modes: collection.modes.map((mode) => ({
+                id: mode.id,
+                name: mode.name,
+            })),
+            variables: mg.variables
+                .getVariables({ collectionId: collection.id })
+                .map((variable) => ({
+                    id: variable.id,
+                    name: variable.name,
+                    description: variable.description,
+                    alias: variable.alias,
+                    type: variable.type,
+                    collectionId: variable.collectionId,
+                    isExternal: variable.isExternal,
+                    codeSyntax: variable.codeSyntax,
+                    // 去除宿主对象原型，保证跨线程消息只包含可克隆数据。
+                    modes: JSON.parse(JSON.stringify(variable.modes)) as Record<
+                        string,
+                        ReadonlyArray<unknown>
+                    >,
+                })),
+        })),
+    };
+}
+
 function collectStyleReferences(
     nodes: SceneNode[],
     result: ThemeApplyResult,
@@ -153,7 +193,9 @@ function collectStyleReferences(
     return references;
 }
 
-async function applyTheme(data: ThemeApplyData): Promise<ThemeApplyResult> {
+async function applyStyleTheme(
+    data: ThemeApplyData,
+): Promise<ThemeApplyResult> {
     const currentPage = mg.document.currentPage;
     const roots =
         data.applyScope === ThemeApplyScope.selection
@@ -295,6 +337,59 @@ async function applyTheme(data: ThemeApplyData): Promise<ThemeApplyResult> {
     return result;
 }
 
+function applyVariableTheme(data: ThemeApplyData): ThemeApplyResult | null {
+    if (!mg.variables || typeof mg.variables.getCollections !== "function") {
+        return null;
+    }
+
+    const targets = mg.variables
+        .getCollections(false)
+        .flatMap((collection) =>
+            collection.modes
+                .filter((mode) => mode.name === data.newTheme)
+                .map((mode) => ({ collection, mode })),
+        );
+    if (targets.length === 0) return null;
+    if (data.applyScope !== ThemeApplyScope.page) {
+        throw new Error("Variables 主题模式仅支持应用到当前页面");
+    }
+
+    const currentPage = mg.document.currentPage;
+    const result: ThemeApplyResult = {
+        scannedNodes: 0,
+        updatedProperties: 0,
+        skippedProperties: 0,
+        failedProperties: 0,
+        issues: [],
+    };
+
+    for (const { collection, mode } of targets) {
+        try {
+            mg.variables.setPageVariableMode(
+                collection.id,
+                mode.id,
+                currentPage.id,
+            );
+            result.updatedProperties++;
+        } catch {
+            result.failedProperties++;
+            result.issues.push({
+                nodeId: currentPage.id,
+                category: "variables",
+                styleName: `${collection.name}/${mode.name}`,
+                level: "failed",
+                reason: `变量集合“${collection.name}”切换失败`,
+            });
+        }
+    }
+
+    return result;
+}
+
+async function applyTheme(data: ThemeApplyData): Promise<ThemeApplyResult> {
+    return applyVariableTheme(data) ?? applyStyleTheme(data);
+}
+
 function assertThemeApplyData(data: unknown): asserts data is ThemeApplyData {
     if (!data || typeof data !== "object") {
         throw new Error("主题应用参数无效");
@@ -331,6 +426,11 @@ async function handleMessage(message: MessageRequest): Promise<unknown> {
             return undefined;
         case UIMessage.GET_TOKENS:
             return (await getTokenCatalog()).exportData;
+        case UIMessage.GET_VARIABLES:
+            if (typeof message.data.includeExternal !== "boolean") {
+                throw new Error("Variables 导出参数无效");
+            }
+            return getVariableExportSnapshot(message.data.includeExternal);
         case UIMessage.APPLY_THEME:
             assertThemeApplyData(message.data);
             return applyTheme(message.data);

@@ -8,16 +8,17 @@ import {
     ListItemIcon,
     Typography,
 } from "@mui/material";
-import { TokenExportData } from "../typings/tokenCommonFields";
+import { buildVariableThemeOptions } from "@lib/variableThemes";
+import { VariableExportSnapshot } from "../typings/variableTokens";
 
 interface TokenListProps {
-    tokens: TokenExportData;
+    snapshot: VariableExportSnapshot;
     value: string[];
     onChange: (themes: string[]) => void;
 }
 
 export default function TokenList(props: TokenListProps) {
-    const themeNames = Object.keys(props.tokens.themes);
+    const themeOptions = buildVariableThemeOptions(props.snapshot);
 
     const handleToggle = (value: string) => () => {
         const selected = props.value.includes(value);
@@ -28,11 +29,11 @@ export default function TokenList(props: TokenListProps) {
         );
     };
 
-    if (themeNames.length === 0) {
+    if (themeOptions.length === 0) {
         return (
             <Box className="empty-state">
                 <Typography color="text.secondary">
-                    未发现包含主题前缀的样式
+                    当前文档没有 Variables 主题模式
                 </Typography>
             </Box>
         );
@@ -40,37 +41,27 @@ export default function TokenList(props: TokenListProps) {
 
     return (
         <List className="theme-list" disablePadding>
-            {themeNames.map((themeName) => (
+            {themeOptions.map((theme) => (
                 <ListItemButton
-                    key={themeName}
-                    onClick={handleToggle(themeName)}
+                    key={theme.name}
+                    onClick={handleToggle(theme.name)}
                     dense
                     divider
                 >
                     <ListItemIcon>
                         <Checkbox
                             edge="start"
-                            checked={props.value.includes(themeName)}
+                            checked={props.value.includes(theme.name)}
                             tabIndex={-1}
                             disableRipple
                             slotProps={{
-                                input: { "aria-label": themeName },
+                                input: { "aria-label": theme.name },
                             }}
                         />
                     </ListItemIcon>
                     <ListItemText
-                        primary={themeName}
-                        secondary={`${
-                            Object.keys(props.tokens.themes[themeName].colors)
-                                .length
-                        } 颜色 · ${
-                            Object.keys(
-                                props.tokens.themes[themeName].typography,
-                            ).length
-                        } 文本 · ${
-                            Object.keys(props.tokens.themes[themeName].effects)
-                                .length
-                        } 效果`}
+                        primary={theme.name}
+                        secondary={`${theme.collections.length} 个变量集合 · ${theme.variableCount} 个变量`}
                     />
                 </ListItemButton>
             ))}

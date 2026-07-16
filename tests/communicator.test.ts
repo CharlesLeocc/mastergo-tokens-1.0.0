@@ -49,6 +49,27 @@ test("成功响应后删除 resolver", async () => {
     assert.equal(PluginCommunicator._messageResolvers.size, 0);
 });
 
+test("接受 MasterGo 桥接中没有 parent source 的合法响应", async () => {
+    const pending = PluginCommunicator.send({
+        type: UIMessage.GET_TOKENS,
+        data: undefined,
+    });
+    const seq = postedMessage.seq as string;
+
+    messageListener({
+        source: null,
+        data: {
+            type: UIMessage.GET_TOKENS,
+            seq,
+            ok: true,
+            data: { schemaVersion: 1, themes: {}, ungrouped: {} },
+        },
+    });
+
+    await pending;
+    assert.equal(PluginCommunicator._messageResolvers.size, 0);
+});
+
 test("失败响应后拒绝 Promise 并删除 resolver", async () => {
     const pending = PluginCommunicator.send({
         type: UIMessage.STORAGE_SET,

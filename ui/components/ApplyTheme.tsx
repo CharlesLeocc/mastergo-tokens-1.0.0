@@ -20,8 +20,6 @@ import {
 
 interface ApplyThemeProps {
     themes: string[];
-    applyScope: ThemeApplyScope;
-    onApplyScopeChange: (scope: ThemeApplyScope) => void;
 }
 
 export function ApplyTheme(props: ApplyThemeProps) {
@@ -38,11 +36,6 @@ export function ApplyTheme(props: ApplyThemeProps) {
         setResult(null);
     };
 
-    const handleChangeApplyRange = (event: SelectChangeEvent) => {
-        props.onApplyScopeChange(event.target.value as ThemeApplyScope);
-        setResult(null);
-    };
-
     const applyTheme = async () => {
         if (!effectiveTheme) return;
 
@@ -55,7 +48,7 @@ export function ApplyTheme(props: ApplyThemeProps) {
                     type: UIMessage.APPLY_THEME,
                     data: {
                         newTheme: effectiveTheme,
-                        applyScope: props.applyScope,
+                        applyScope: ThemeApplyScope.page,
                     },
                 },
                 120000,
@@ -86,22 +79,6 @@ export function ApplyTheme(props: ApplyThemeProps) {
                 </Select>
             </FormControl>
 
-            <FormControl size="small" fullWidth>
-                <InputLabel id="apply-scope-label">应用到</InputLabel>
-                <Select
-                    labelId="apply-scope-label"
-                    value={props.applyScope}
-                    onChange={handleChangeApplyRange}
-                    label="应用到"
-                >
-                    {Object.values(ThemeApplyScope).map((scope) => (
-                        <MenuItem key={scope} value={scope}>
-                            {scope}
-                        </MenuItem>
-                    ))}
-                </Select>
-            </FormControl>
-
             <Button
                 variant="contained"
                 onClick={applyTheme}
@@ -127,9 +104,9 @@ export function ApplyTheme(props: ApplyThemeProps) {
                         result.failedProperties > 0 ? "warning" : "success"
                     }
                 >
-                    已更新 {result.updatedProperties} 项，跳过{" "}
-                    {result.skippedProperties} 项，失败{" "}
-                    {result.failedProperties} 项
+                    已切换 {result.updatedProperties} 个变量集合，跳过{" "}
+                    {result.skippedProperties} 个，失败{" "}
+                    {result.failedProperties} 个
                     {result.issues[0] && (
                         <Typography variant="caption" sx={{ display: "block" }}>
                             {result.issues[0].reason}

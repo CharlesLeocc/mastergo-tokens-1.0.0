@@ -20,8 +20,31 @@ HOST_MOCK = r"""
         themes: { "浅色": tokenGroup("浅色"), "深色": tokenGroup("深色") },
         ungrouped: { colors: {}, typography: {}, effects: {} },
     };
+    const variables = {
+        schemaVersion: 1,
+        collections: [{
+            id: "theme",
+            name: "Theme",
+            isExternal: false,
+            modes: [{ id: "light", name: "亮色" }, { id: "dark", name: "暗色" }],
+            variables: [{
+                id: "brand",
+                name: "Color/Brand",
+                description: "品牌色",
+                alias: "brand-color",
+                type: "COLOR",
+                collectionId: "theme",
+                isExternal: false,
+                codeSyntax: { web: "--brand-color" },
+                modes: {
+                    light: [{ r: 0.09, g: 0.42, b: 0.36, a: 1 }],
+                    dark: [{ r: 0.28, g: 0.8, b: 0.68, a: 1 }],
+                },
+            }],
+        }],
+    };
     const storage = new Map([
-        ["themes", ["浅色", "深色"]],
+        ["themes", ["阶梯色", "状态色"]],
         ["applyScope", "页面"],
     ]);
     window.__pluginRequests = [];
@@ -39,6 +62,7 @@ HOST_MOCK = r"""
             storage.set(message.data.key, message.data.value);
         }
         if (message.type === "GET_TOKENS") data = tokens;
+        if (message.type === "GET_VARIABLES") data = variables;
         if (message.type === "APPLY_THEME") {
             data = {
                 scannedNodes: 12,
@@ -87,26 +111,37 @@ with sync_playwright() as playwright:
     initial_requests = page.evaluate(
         "window.__pluginRequests.map((request) => request.type)"
     )
-    assert initial_requests.count("STORAGE_GET") == 2
-    assert initial_requests.count("GET_TOKENS") == 1
+    assert initial_requests.count("STORAGE_GET") == 1
+    assert initial_requests.count("GET_VARIABLES") == 1
 
     page.get_by_role("button", name="更新主题").click()
-    page.get_by_text("已更新 8 项，跳过 1 项，失败 0 项").wait_for()
+    page.get_by_text("已切换 8 个变量集合，跳过 1 个，失败 0 个").wait_for()
+    apply_request = page.evaluate(
+        "window.__pluginRequests.filter((request) => request.type === 'APPLY_THEME').at(-1)"
+    )
+    assert apply_request["data"] == {"newTheme": "亮色", "applyScope": "页面"}
     assert_no_horizontal_overflow(page)
 
     page.get_by_role("tab", name="定义主题").click()
-    page.get_by_text("浅色", exact=True).click()
+    page.get_by_text("暗色", exact=True).wait_for()
+    assert page.get_by_text("阶梯色", exact=True).count() == 0
+    page.screenshot(path=OUTPUT_DIR / "plugin-themes-mobile.png", full_page=True)
+    page.get_by_text("亮色", exact=True).click()
     stored = page.evaluate(
         "window.__pluginRequests.some((request) => request.type === 'STORAGE_SET' && request.data.key === 'themes')"
     )
     assert stored, "主题切换没有发送存储请求"
 
     page.get_by_role("tab", name="导出").click()
-    page.get_by_role("button", name="查看导出内容").click()
-    page.get_by_text('"schemaVersion": 1', exact=False).wait_for()
+    page.get_by_role("button", name="导出前端主题变量").click()
+    page.get_by_text("1 Collection", exact=True).wait_for()
+    page.get_by_text("--brand-color: #176b5c;", exact=False).wait_for()
     with page.expect_download() as download_info:
-        page.get_by_role("button", name="下载 JSON").click()
-    assert download_info.value.suggested_filename == "mastergo-styles-v1.json"
+        page.get_by_role("button", name="下载 CSS").click()
+    assert download_info.value.suggested_filename == "mastergo-theme-variables.css"
+    page.get_by_role("button", name="DTCG").click()
+    page.get_by_text('"$type": "color"', exact=False).wait_for()
+    page.get_by_text('"colorSpace": "srgb"', exact=False).wait_for()
     assert_no_horizontal_overflow(page)
     page.screenshot(path=OUTPUT_DIR / "plugin-mobile.png", full_page=True)
 

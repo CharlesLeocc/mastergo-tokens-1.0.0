@@ -1,13 +1,8 @@
 import React, { useState } from "react";
 import { Button, Dialog } from "@mui/material";
 import ExportDialog from "@ui/ExportDialog";
-import { TokenExportData } from "../typings/tokenCommonFields";
 
-interface ExportPanelProps {
-    tokens: TokenExportData;
-}
-
-export default function ExportPanel(props: ExportPanelProps) {
+export default function ExportPanel() {
     const [openExportDialog, setOpenExportDialog] = useState(false);
 
     return (
@@ -16,7 +11,7 @@ export default function ExportPanel(props: ExportPanelProps) {
                 variant="contained"
                 onClick={() => setOpenExportDialog(true)}
             >
-                查看导出内容
+                导出前端主题变量
             </Button>
             <Dialog
                 open={openExportDialog}
@@ -24,10 +19,7 @@ export default function ExportPanel(props: ExportPanelProps) {
                 fullWidth
                 maxWidth="md"
             >
-                <ExportDialog
-                    tokens={props.tokens}
-                    onClose={() => setOpenExportDialog(false)}
-                />
+                <ExportDialog onClose={() => setOpenExportDialog(false)} />
             </Dialog>
         </div>
     );

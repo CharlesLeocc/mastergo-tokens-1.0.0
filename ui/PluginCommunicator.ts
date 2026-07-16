@@ -33,7 +33,8 @@ export default class PluginCommunicator {
         this._initialized = true;
 
         window.addEventListener("message", (event: MessageEvent<unknown>) => {
-            if (event.source !== parent || !isMessageResponse(event.data)) {
+            // MasterGo 消息桥接不保证 event.source 指向 iframe parent，使用协议结构与 seq 校验响应。
+            if (!isMessageResponse(event.data)) {
                 return;
             }
 

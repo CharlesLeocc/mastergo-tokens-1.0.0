@@ -4,11 +4,13 @@ import {
     ThemeApplyResult,
     TokenExportData,
 } from "../typings/tokenCommonFields";
+import { VariableExportSnapshot } from "../typings/variableTokens";
 
 export enum UIMessage {
     STORAGE_SET = "STORAGE_SET",
     STORAGE_GET = "STORAGE_GET",
     GET_TOKENS = "GET_TOKENS",
+    GET_VARIABLES = "GET_VARIABLES",
     APPLY_THEME = "APPLY_THEME",
 }
 
@@ -19,6 +21,7 @@ export type RequestDataMap = {
     };
     [UIMessage.STORAGE_GET]: LocalStorageKeys;
     [UIMessage.GET_TOKENS]: undefined;
+    [UIMessage.GET_VARIABLES]: { includeExternal: boolean };
     [UIMessage.APPLY_THEME]: ThemeApplyData;
 };
 
@@ -26,6 +29,7 @@ export type ResponseDataMap = {
     [UIMessage.STORAGE_SET]: undefined;
     [UIMessage.STORAGE_GET]: unknown;
     [UIMessage.GET_TOKENS]: TokenExportData;
+    [UIMessage.GET_VARIABLES]: VariableExportSnapshot;
     [UIMessage.APPLY_THEME]: ThemeApplyResult;
 };
 

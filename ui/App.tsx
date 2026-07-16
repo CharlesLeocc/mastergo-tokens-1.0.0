@@ -19,26 +19,18 @@ import { UIMessage } from "@messages/sender";
 import TokenList from "@ui/TokenList";
 import { ApplyTheme } from "@ui/components/ApplyTheme";
 import ExportPanel from "@ui/ExportPanel";
-import {
-    LocalStorageKeys,
-    ThemeApplyScope,
-    TokenExportData,
-} from "../typings/tokenCommonFields";
+import { LocalStorageKeys } from "../typings/tokenCommonFields";
+import { VariableExportSnapshot } from "../typings/variableTokens";
+import { buildVariableThemeOptions } from "@lib/variableThemes";
 
-const EMPTY_TOKENS: TokenExportData = {
+const EMPTY_VARIABLES: VariableExportSnapshot = {
     schemaVersion: 1,
-    themes: {},
-    ungrouped: {
-        colors: {},
-        typography: {},
-        effects: {},
-    },
+    collections: [],
 };
 
 type InitialData = {
     storedThemes: string[] | null;
-    storedScope: ThemeApplyScope | null;
-    tokenData: TokenExportData;
+    variableData: VariableExportSnapshot;
 };
 
 let initialDataPromise: Promise<InitialData> | null = null;
@@ -48,16 +40,17 @@ function loadInitialData(): Promise<InitialData> {
         // React 18 StrictMode 会在开发环境重挂载组件，缓存请求可避免重复扫描样式。
         initialDataPromise = Promise.all([
             storageGet<string[]>(LocalStorageKeys.themes),
-            storageGet<ThemeApplyScope>(LocalStorageKeys.applyScope),
-            PluginCommunicator.send({
-                type: UIMessage.GET_TOKENS,
-                data: undefined,
-            }),
+            PluginCommunicator.send(
+                {
+                    type: UIMessage.GET_VARIABLES,
+                    data: { includeExternal: false },
+                },
+                60000,
+            ),
         ])
-            .then(([storedThemes, storedScope, tokenData]) => ({
+            .then(([storedThemes, variableData]) => ({
                 storedThemes,
-                storedScope,
-                tokenData,
+                variableData,
             }))
             .catch((error) => {
                 initialDataPromise = null;
@@ -70,8 +63,8 @@ function loadInitialData(): Promise<InitialData> {
 
 function App() {
     const [themes, setThemes] = useState<string[]>([]);
-    const [applyScope, setApplyScope] = useState(ThemeApplyScope.page);
-    const [tokens, setTokens] = useState<TokenExportData>(EMPTY_TOKENS);
+    const [variableData, setVariableData] =
+        useState<VariableExportSnapshot>(EMPTY_VARIABLES);
     const [tab, setTab] = useState(0);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState("");
@@ -99,24 +92,39 @@ function App() {
 
         async function initialize() {
             try {
-                const { storedThemes, storedScope, tokenData } =
+                const { storedThemes, variableData: nextVariableData } =
                     await loadInitialData();
                 if (!active) return;
 
-                setTokens(tokenData);
-                if (Array.isArray(storedThemes)) {
-                    setThemes(
-                        storedThemes.filter(
-                            (value): value is string =>
-                                typeof value === "string",
-                        ),
-                    );
-                }
+                setVariableData(nextVariableData);
+                const availableThemes = buildVariableThemeOptions(
+                    nextVariableData,
+                ).map((theme) => theme.name);
+                const validStoredThemes = Array.isArray(storedThemes)
+                    ? storedThemes.filter(
+                          (value): value is string =>
+                              typeof value === "string" &&
+                              availableThemes.includes(value),
+                      )
+                    : [];
+                const nextThemes =
+                    storedThemes === null ||
+                    (storedThemes.length > 0 && validStoredThemes.length === 0)
+                        ? availableThemes
+                        : validStoredThemes;
+                setThemes(nextThemes);
+
                 if (
-                    storedScope &&
-                    Object.values(ThemeApplyScope).includes(storedScope)
+                    Array.isArray(storedThemes) &&
+                    (storedThemes.length !== nextThemes.length ||
+                        storedThemes.some(
+                            (theme, index) => theme !== nextThemes[index],
+                        ))
                 ) {
-                    setApplyScope(storedScope);
+                    // 旧版本保存的是样式名前缀，迁移为当前文档的 Variables mode。
+                    storageSet(LocalStorageKeys.themes, nextThemes).catch(
+                        () => undefined,
+                    );
                 }
             } catch (reason) {
                 if (active) {
@@ -141,15 +149,6 @@ function App() {
         setThemes(nextThemes);
         storageSet(LocalStorageKeys.themes, nextThemes).catch((reason) => {
             setError(reason instanceof Error ? reason.message : "主题保存失败");
-        });
-    };
-
-    const handleApplyScopeChange = (nextScope: ThemeApplyScope) => {
-        setApplyScope(nextScope);
-        storageSet(LocalStorageKeys.applyScope, nextScope).catch((reason) => {
-            setError(
-                reason instanceof Error ? reason.message : "应用范围保存失败",
-            );
         });
     };
 
@@ -185,21 +184,15 @@ function App() {
                         </Box>
                     ) : (
                         <>
-                            {tab === 0 && (
-                                <ApplyTheme
-                                    themes={themes}
-                                    applyScope={applyScope}
-                                    onApplyScopeChange={handleApplyScopeChange}
-                                />
-                            )}
+                            {tab === 0 && <ApplyTheme themes={themes} />}
                             {tab === 1 && (
                                 <TokenList
-                                    tokens={tokens}
+                                    snapshot={variableData}
                                     value={themes}
                                     onChange={handleThemesChange}
                                 />
                             )}
-                            {tab === 2 && <ExportPanel tokens={tokens} />}
+                            {tab === 2 && <ExportPanel />}
                         </>
                     )}
                 </Box>

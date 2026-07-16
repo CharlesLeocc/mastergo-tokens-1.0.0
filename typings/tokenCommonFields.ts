@@ -21,7 +21,7 @@ export interface ThemeApplyData {
 
 export interface ThemeApplyIssue {
     nodeId: string;
-    category: StyleCategory;
+    category: StyleCategory | "variables";
     styleName?: string;
     level: "skipped" | "failed";
     reason: string;
